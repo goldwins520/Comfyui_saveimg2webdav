@@ -143,13 +143,107 @@ class SaveImageToWebDAV:
 
         return (image,)
 
+
+class SaveFileToWebDAV:
+    @classmethod
+    def INPUT_TYPES(s):
+        """
+            Return a dictionary which contains config for all input fields.
+        """
+        return {
+            "required": {
+                "filepath": ("STRING", {
+                    "multiline": False,
+                }),
+                "delAfterUpload": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "Yes",
+                    "label_off": "No"
+                }),
+                "webdav_url": ("STRING", {
+                    "multiline": False,
+                    "default": "http://example.com/webdav/"
+                }),
+                "webdav_username": ("STRING", {
+                    "multiline": False,
+                    "default": "username"
+                }),
+                "webdav_password": ("STRING", {
+                    "multiline": False,
+                    "default": "password"
+                }),
+                "async_upload": ("BOOLEAN", {
+                    "default": False,
+                    "label_on": "Yes",
+                    "label_off": "No"
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("filepath",)
+    FUNCTION = "upload_file"
+    CATEGORY = "File/WebDAV"
+    OUTPUT_NODE = True
+
+    def upload_file(self, filepath, delAfterUpload, webdav_url, webdav_username, webdav_password, async_upload):
+        def upload_and_handle_failure():
+            try:
+                with open(filepath, 'rb') as file:
+                    file_data = file.read()
+                    # Get current date and time
+                    from datetime import datetime
+                    now = datetime.now()
+                    date_folder = now.strftime("%Y-%m-%d")
+                    time_str = now.strftime("%Y%m%d_%H%M%S")
+                    file_name = f"{time_str}_{filepath.split('/')[-1]}"
+                    upload_url = f"{webdav_url}/{date_folder}/{file_name}"
+                    headers = {
+                        'Content-Type': 'application/octet-stream'
+                    }
+                    auth = (webdav_username, webdav_password)
+                    response = requests.put(upload_url, data=file_data, headers=headers, auth=auth)
+                    if response.status_code in [200, 201, 204]:
+                        print(f"File successfully uploaded to {upload_url}")
+                        if delAfterUpload:
+                            import os
+                            import time
+                            max_retries = 3
+                            retry_count = 0
+                            while retry_count < max_retries:
+                                try:
+                                    os.remove(filepath)
+                                    print(f"Local file {filepath} deleted after successful upload.")
+                                    break
+                                except PermissionError as e:
+                                    retry_count += 1
+                                    if retry_count < max_retries:
+                                        print(f"File is still in use, retrying in 1 second... (Attempt {retry_count}/{max_retries})")
+                                        time.sleep(1)
+                                    else:
+                                        print(f"Failed to delete local file {filepath} after {max_retries} attempts: {e}")
+                    else:
+                        print(f"Failed to upload file to WebDAV server: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"Failed to upload file to WebDAV server: {e}")
+
+        if async_upload:
+            import threading
+            threading.Thread(target=upload_and_handle_failure).start()
+        else:
+            upload_and_handle_failure()
+
+        return (filepath,)
+
 # A dictionary that contains all nodes you want to export with their names
 # NOTE: names should be globally unique
 NODE_CLASS_MAPPINGS = {
-    "SaveImageToWebDAV": SaveImageToWebDAV
+    "SaveImageToWebDAV": SaveImageToWebDAV,
+    "SaveFileToWebDAV": SaveFileToWebDAV
 }
 
 # A dictionary that contains the friendly/humanly readable titles for the nodes
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SaveImageToWebDAV": "Save Image to WebDAV"
+    "SaveImageToWebDAV": "Save Image to WebDAV",
+    "SaveFileToWebDAV": "Save File to WebDAV"
 }
