@@ -107,7 +107,7 @@ class SaveImageToWebDAV:
                     if save_local_when_fail and local_path:
                         self._save_locally(data, local_path)
                     return False
-            except requests.exceptions.RequestException as e:
+            except:
                 retry_count += 1
                 if retry_count < max_retries:
                     print(f"Failed to upload to WebDAV server: {e}. Retrying in {retry_interval} seconds... (Attempt {retry_count}/{max_retries})")
