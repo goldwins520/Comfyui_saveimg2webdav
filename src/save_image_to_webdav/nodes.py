@@ -121,7 +121,7 @@ class SaveImageToWebDAV:
         #     images = image
         # else:
         #     images = [image]
-
+        images = image
         results = []
         for img in images:
             # Convert the image tensor to a PIL Image
