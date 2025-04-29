@@ -93,7 +93,7 @@ class SaveImageToWebDAV:
 
     def _upload_to_webdav(self, data, url, headers, auth, save_local_when_fail, local_path=None):
         try:
-            response = requests.put(url, data=data, headers=headers, auth=auth)
+            response = requests.put(url, data=data, headers=headers, auth=auth, verify=False)
             if response.status_code in [200, 201, 204]:
                 print(f"Successfully uploaded to {url}")
                 return True
