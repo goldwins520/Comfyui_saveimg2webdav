@@ -117,10 +117,10 @@ class SaveImageToWebDAV:
 
     def upload_image(self, image, webdav_url, webdav_username, webdav_password, save_local_when_fail, async_upload):
         # 处理image为数组的情况
-        if isinstance(image, (list, tuple)):
-            images = image
-        else:
-            images = [image]
+        # if isinstance(image, (list, tuple)):
+        #     images = image
+        # else:
+        #     images = [image]
 
         results = []
         for img in images:
