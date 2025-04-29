@@ -53,7 +53,7 @@ class SaveImageToWebDAV:
         """
         return {
             "required": {
-                "image": ("IMAGE", { "tooltip": "This is an image"}),
+                "image": ("IMAGE", { "tooltip": "Single image or multi images"}),
                 "webdav_url": ("STRING", {
                     "multiline": False,
                     "default": "http://example.com/webdav/"
@@ -85,63 +85,81 @@ class SaveImageToWebDAV:
     CATEGORY = "Image/WebDAV"
     OUTPUT_NODE = True  # 增加输出节点标志，以便在UI中显示预览
 
-    def upload_image(self, image, webdav_url, webdav_username, webdav_password, save_local_when_fail, async_upload):
-        # Convert the image tensor to a PIL Image
-        _image = image.squeeze().cpu().numpy()
-        _image = Image.fromarray((_image * 255).astype('uint8'))
-
-        # Save the image to a BytesIO object
-        img_byte_arr = BytesIO()
-        _image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-
-        # Get current date and time
+    def _get_current_datetime(self):
         from datetime import datetime
         now = datetime.now()
-        date_folder = now.strftime("%Y-%m-%d")
-        time_str = now.strftime("%Y%m%d_%H%M%S")
-        file_name = f"{time_str}.png"
-        print(f"Generated file name: {file_name}")  # 调试日志：生成的文件名
+        return now.strftime("%Y-%m-%d"), now.strftime("%Y%m%d_%H%M%S")
 
-        def upload_and_handle_failure():
-            # Upload the image to the WebDAV server
-            headers = {
-                'Content-Type': 'image/png'
-            }
+    def _upload_to_webdav(self, data, url, headers, auth, save_local_when_fail, local_path=None):
+        try:
+            response = requests.put(url, data=data, headers=headers, auth=auth)
+            if response.status_code in [200, 201, 204]:
+                print(f"Successfully uploaded to {url}")
+                return True
+            else:
+                print(f"Failed to upload to WebDAV server: {response.status_code} - {response.text}")
+                if save_local_when_fail and local_path:
+                    self._save_locally(data, local_path)
+                return False
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to upload to WebDAV server: {e}")
+            if save_local_when_fail and local_path:
+                self._save_locally(data, local_path)
+            return False
+
+    def _save_locally(self, data, path):
+        import os
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(data)
+        print(f"Data saved locally at {path}")
+
+    def upload_image(self, image, webdav_url, webdav_username, webdav_password, save_local_when_fail, async_upload):
+        # 处理image为数组的情况
+        if isinstance(image, (list, tuple)):
+            images = image
+        else:
+            images = [image]
+
+        results = []
+        for img in images:
+            # Convert the image tensor to a PIL Image
+            _image = img.squeeze().cpu().numpy()
+            _image = Image.fromarray((_image * 255).astype('uint8'))
+
+            # Save the image to a BytesIO object
+            img_byte_arr = BytesIO()
+            _image.save(img_byte_arr, format='PNG')
+            img_byte_arr = img_byte_arr.getvalue()
+
+            # Get current date and time
+            date_folder, time_str = self._get_current_datetime()
+            file_name = f"{time_str}.png"
+            print(f"Generated file name: {file_name}")
+
+            headers = {'Content-Type': 'image/png'}
             auth = (webdav_username, webdav_password)
             upload_url = f"{webdav_url}/{date_folder}/{file_name}"
 
-            uploadSuccess = False
+            if save_local_when_fail:
+                import os
+                fail_folder = os.path.join("output", "upload-fail", date_folder)
+                fail_path = os.path.join(fail_folder, file_name)
+            else:
+                fail_path = None
 
-            try:
-                print("Uploading...")  # 调试日志：保存到字节流
-                response = requests.put(upload_url, data=img_byte_arr, headers=headers, auth=auth)
-                if response.status_code in [200, 201, 204]:
-                    print(f"Image successfully uploaded to {upload_url}")  # 上传成功日志
-                    uploadSuccess = True
-                else:
-                    print(f"Failed to upload image to WebDAV server: {response.status_code} - {response.text}")  # 上传失败日志
-                    uploadSuccess = False
-            except requests.exceptions.RequestException as e:
-                    print(f"Failed to upload image to WebDAV server: {e}")
-                    uploadSuccess = False
+            def upload_task():
+                self._upload_to_webdav(img_byte_arr, upload_url, headers, auth, save_local_when_fail, fail_path)
 
-            if uploadSuccess == False:
-                if save_local_when_fail:
-                    import os
-                    fail_folder = os.path.join("output","upload-fail", date_folder)
-                    os.makedirs(fail_folder, exist_ok=True)
-                    fail_path = os.path.join(fail_folder, file_name)
-                    _image.save(fail_path)
-                    print(f"Image saved locally at {fail_path}")  # 本地保存日志
+            if async_upload:
+                import threading
+                threading.Thread(target=upload_task).start()
+            else:
+                upload_task()
 
-        if async_upload:
-            import threading
-            threading.Thread(target=upload_and_handle_failure).start()
-        else:
-            upload_and_handle_failure()
+            results.append(img)
 
-        return (image,)
+        return (results,)
 
 
 class SaveFileToWebDAV:
@@ -186,52 +204,60 @@ class SaveFileToWebDAV:
     CATEGORY = "File/WebDAV"
     OUTPUT_NODE = True
 
-    def upload_file(self, filepath, delAfterUpload, webdav_url, webdav_username, webdav_password, async_upload):
-        def upload_and_handle_failure():
+    def _get_current_datetime(self):
+        from datetime import datetime
+        now = datetime.now()
+        return now.strftime("%Y-%m-%d"), now.strftime("%Y%m%d_%H%M%S")
+
+    def _upload_to_webdav(self, data, url, headers, auth, delAfterUpload, filepath):
+        try:
+            response = requests.put(url, data=data, headers=headers, auth=auth)
+            if response.status_code in [200, 201, 204]:
+                print(f"Successfully uploaded to {url}")
+                if delAfterUpload:
+                    self._delete_file(filepath)
+                return True
+            else:
+                print(f"Failed to upload to WebDAV server: {response.status_code} - {response.text}")
+                return False
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to upload to WebDAV server: {e}")
+            return False
+
+    def _delete_file(self, filepath):
+        import os
+        import time
+        max_retries = 3
+        retry_count = 0
+        while retry_count < max_retries:
             try:
-                with open(filepath, 'rb') as file:
-                    file_data = file.read()
-                    # Get current date and time
-                    from datetime import datetime
-                    now = datetime.now()
-                    date_folder = now.strftime("%Y-%m-%d")
-                    time_str = now.strftime("%Y%m%d_%H%M%S")
-                    file_name = f"{time_str}_{filepath.split('/')[-1]}"
-                    upload_url = f"{webdav_url}/{date_folder}/{file_name}"
-                    headers = {
-                        'Content-Type': 'application/octet-stream'
-                    }
-                    auth = (webdav_username, webdav_password)
-                    response = requests.put(upload_url, data=file_data, headers=headers, auth=auth)
-                    if response.status_code in [200, 201, 204]:
-                        print(f"File successfully uploaded to {upload_url}")
-                        if delAfterUpload:
-                            import os
-                            import time
-                            max_retries = 3
-                            retry_count = 0
-                            while retry_count < max_retries:
-                                try:
-                                    os.remove(filepath)
-                                    print(f"Local file {filepath} deleted after successful upload.")
-                                    break
-                                except PermissionError as e:
-                                    retry_count += 1
-                                    if retry_count < max_retries:
-                                        print(f"File is still in use, retrying in 1 second... (Attempt {retry_count}/{max_retries})")
-                                        time.sleep(1)
-                                    else:
-                                        print(f"Failed to delete local file {filepath} after {max_retries} attempts: {e}")
-                    else:
-                        print(f"Failed to upload file to WebDAV server: {response.status_code} - {response.text}")
-            except Exception as e:
-                print(f"Failed to upload file to WebDAV server: {e}")
+                os.remove(filepath)
+                print(f"Local file {filepath} deleted after successful upload.")
+                break
+            except PermissionError as e:
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"File is still in use, retrying in 1 second... (Attempt {retry_count}/{max_retries})")
+                    time.sleep(1)
+                else:
+                    print(f"Failed to delete local file {filepath} after {max_retries} attempts: {e}")
+
+    def upload_file(self, filepath, delAfterUpload, webdav_url, webdav_username, webdav_password, async_upload):
+        def upload_task():
+            with open(filepath, 'rb') as file:
+                file_data = file.read()
+                date_folder, time_str = self._get_current_datetime()
+                file_name = f"{time_str}_{filepath.split('/')[-1]}"
+                upload_url = f"{webdav_url}/{date_folder}/{file_name}"
+                headers = {'Content-Type': 'application/octet-stream'}
+                auth = (webdav_username, webdav_password)
+                self._upload_to_webdav(file_data, upload_url, headers, auth, delAfterUpload, filepath)
 
         if async_upload:
             import threading
-            threading.Thread(target=upload_and_handle_failure).start()
+            threading.Thread(target=upload_task).start()
         else:
-            upload_and_handle_failure()
+            upload_task()
 
         return (filepath,)
 
