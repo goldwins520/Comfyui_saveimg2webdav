@@ -92,21 +92,32 @@ class SaveImageToWebDAV:
         return now.strftime("%Y-%m-%d"), now.strftime("%Y%m%d_%H%M%S")
 
     def _upload_to_webdav(self, data, url, headers, auth, save_local_when_fail, local_path=None):
-        try:
-            response = requests.put(url, data=data, headers=headers, auth=auth, verify=False)
-            if response.status_code in [200, 201, 204]:
-                print(f"Successfully uploaded to {url}")
-                return True
-            else:
-                print(f"Failed to upload to WebDAV server: {response.status_code} - {response.text}")
-                if save_local_when_fail and local_path:
-                    self._save_locally(data, local_path)
-                return False
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to upload to WebDAV server: {e}")
-            if save_local_when_fail and local_path:
-                self._save_locally(data, local_path)
-            return False
+        max_retries = 3
+        retry_interval = 3  # 重试间隔为3秒
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                response = requests.put(url, data=data, headers=headers, auth=auth)
+                if response.status_code in [200, 201, 204]:
+                    print(f"Successfully uploaded to {url}")
+                    return True
+                else:
+                    print(f"Failed to upload to WebDAV server: {response.status_code} - {response.text}")
+                    if save_local_when_fail and local_path:
+                        self._save_locally(data, local_path)
+                    return False
+            except requests.exceptions.RequestException as e:
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"Failed to upload to WebDAV server: {e}. Retrying in {retry_interval} seconds... (Attempt {retry_count}/{max_retries})")
+                    import time
+                    time.sleep(retry_interval)
+                else:
+                    print(f"Failed to upload to WebDAV server after {max_retries} attempts: {e}")
+                    if save_local_when_fail and local_path:
+                        self._save_locally(data, local_path)
+                    return False
 
     def _save_locally(self, data, path):
         import os
