@@ -103,11 +103,15 @@ class SaveImageToWebDAV:
                     print(f"Successfully uploaded to {url}")
                     return True
                 else:
-                    print(f"Failed to upload to WebDAV server: {response.status_code} - {response.text}")
-                    if save_local_when_fail and local_path:
-                        self._save_locally(data, local_path)
-                    return False
-            except:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        print(f"Failed to upload to WebDAV server: {response.status_code} - {response.text}. Retrying in {retry_interval} seconds... (Attempt {retry_count}/{max_retries})")
+                        import time
+                        time.sleep(retry_interval)
+                    else:
+                        print(f"Failed to upload to WebDAV server after {max_retries} attempts: {response.status_code} - {response.text}")
+                        return False
+            except Exception as e:
                 retry_count += 1
                 if retry_count < max_retries:
                     print(f"Failed to upload to WebDAV server: {e}. Retrying in {retry_interval} seconds... (Attempt {retry_count}/{max_retries})")
@@ -115,16 +119,7 @@ class SaveImageToWebDAV:
                     time.sleep(retry_interval)
                 else:
                     print(f"Failed to upload to WebDAV server after {max_retries} attempts: {e}")
-                    if save_local_when_fail and local_path:
-                        self._save_locally(data, local_path)
                     return False
-
-    def _save_locally(self, data, path):
-        import os
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, 'wb') as f:
-            f.write(data)
-        print(f"Data saved locally at {path}")
 
     def upload_image(self, image, webdav_url, webdav_username, webdav_password, save_local_when_fail, async_upload):
         # 处理image为数组的情况
@@ -167,7 +162,9 @@ class SaveImageToWebDAV:
                 fail_path = None
 
             def upload_task():
-                self._upload_to_webdav(img_byte_arr, upload_url, headers, auth, save_local_when_fail, fail_path)
+                if not self._upload_to_webdav(img_byte_arr, upload_url, headers, auth, save_local_when_fail, fail_path):
+                    if save_local_when_fail and fail_path:
+                        self._save_locally(img_byte_arr, fail_path)
 
             if async_upload:
                 import threading
