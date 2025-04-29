@@ -125,7 +125,12 @@ class SaveImageToWebDAV:
         for img in images:
             # Convert the image tensor to a PIL Image
             _image = img.squeeze().cpu().numpy()
-            _image = Image.fromarray((_image * 255).astype('uint8'))
+
+            try:
+                _image = Image.fromarray((_image * 255).astype('uint8'))
+            except:
+                i = 255. * _image
+                _image = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
 
             # Save the image to a BytesIO object
             img_byte_arr = BytesIO()
