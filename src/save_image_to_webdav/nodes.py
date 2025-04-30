@@ -88,8 +88,10 @@ class SaveImageToWebDAV:
 
     def _get_current_datetime(self):
         from datetime import datetime
+        import random
         now = datetime.now()
-        return now.strftime("%Y-%m-%d"), now.strftime("%Y%m%d_%H%M%S")
+        random_suffix = f"{random.randint(0, 999):03d}"  # 生成3位数的随机数字
+        return now.strftime("%Y-%m-%d"), f"{now.strftime('%Y%m%d_%H%M%S')}_{random_suffix}"
 
     def _upload_to_webdav(self, data, url, headers, auth, save_local_when_fail, local_path=None):
         max_retries = 3
